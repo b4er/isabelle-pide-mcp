@@ -13,16 +13,15 @@ object Tool_Edit {
   case object Edit_Prepend extends Edit_Mode
   case object Edit_Append extends Edit_Mode
 
-  object Edit_Mode {
-    def parse(s: String): Exn.Result[Edit_Mode] = Exn.capture {
-      s match {
-        case "replace" => Edit_Replace
-        case "prepend" => Edit_Prepend
-        case "append" => Edit_Append
-        case _ => error("Invalid edit mode: " + s)
-      }
-    }
-  }
+  case class Args(
+    origin: String,
+    mode: Edit_Mode,
+    text: String,
+    start_line: Option[Int],
+    end_line: Option[Int],
+    old_text: String,
+    edit_all: Boolean
+  )
 
   def apply_edit(
     mode: Edit_Mode,
@@ -82,42 +81,45 @@ object Tool_Edit {
   }
 }
 
-class Tool_Edit extends PIDE_MCP_Tool("edit") {
+class Tool_Edit extends PIDE_MCP_Typed_Tool[Tool_Edit.Args]("edit") {
+  import JSON_Schema.Input
+  import Tool_Edit._
+  import PIDE_MCP_Tool_Schema.{origin, start_line_opt, end_line_opt}
+
   def description: String =
     "Edit a file by either replacing, prepending to, or appending to a matching old text in a given range. "
       + "Note: base session files are static and cannot be edited. "
       + PIDE_MCP_Tool_Schema.implicit_reload_file
 
-  def input_schema: JSON.Object.T =
-    JSON.Object("type" -> "object", "properties" -> JSON.Object(
-      PIDE_MCP_Tool_Schema.origin_prop,
-      "mode" -> JSON.Object("type" -> "string",
-        "enum" -> List("replace", "prepend", "append"),
-        "description" -> "Edit mode",
-        "default" -> "replace"),
-      "text" -> JSON.Object("type" -> "string", "description" -> "New text to write"),
-      PIDE_MCP_Tool_Schema.start_line_opt_prop,
-      PIDE_MCP_Tool_Schema.end_line_opt_prop,
-      "old_text" -> JSON.Object("type" -> "string",
-        "description" -> "Text to find as a substring within the given range. If old_text is empty, the whole text in range is selected instead."),
-      "edit_all" -> JSON.Object("type" -> "boolean",
-        "description" -> "Edit every match or just a unique occurrence.",
-        "default" -> false)
-    ), "required" -> List("origin", "text", "old_text"))
+  private val mode_ty: Input.T[Edit_Mode] =
+    Input.enumerate(List("replace", "prepend", "append")).emap {
+      case "replace" => Some(Edit_Replace)
+      case "prepend" => Some(Edit_Prepend)
+      case "append" => Some(Edit_Append)
+      case _ => None
+    }
+  private val mode_f =
+    Input.optional("mode", "Edit mode", mode_ty.keyword("default", "replace"))
+  private val text_f = Input.required("text", "New text to write", Input.string)
+  private val old_text_f = Input.required("old_text",
+    "Text to find as a substring within the given range. If old_text is empty, the whole text in range is selected instead.",
+    Input.string)
+  private val edit_all_f = Input.default("edit_all",
+    "Edit every match or just a unique occurrence.", Input.boolean, false)
+
+  val input: Input.T[Args] =
+    Input.record(List(origin, mode_f, text_f, start_line_opt, end_line_opt, old_text_f, edit_all_f)) { obj =>
+      Args(origin.get(obj), mode_f.get(obj).getOrElse(Edit_Replace), text_f.get(obj),
+        start_line_opt.get(obj), end_line_opt.get(obj), old_text_f.get(obj), edit_all_f.get(obj))
+    }
 
   override def annotations: Option[JSON.Object.T] = Some(JSON.Object("destructiveHint" -> true))
 
-  def handle(params: JSON.Object.T): Exn.Result[JSON.T] = Exn.capture {
-    val node_name = Exn.release(PIDE_MCP_Tool_Util.origin_param(session, params))
-    val mode = Exn.release(Tool_Edit.Edit_Mode.parse(
-      JSON.string(params, "mode").getOrElse("replace")))
-    val text = JSON.string(params, "text").getOrElse(error("Missing text parameter"))
-    val old_text = JSON.string(params, "old_text").getOrElse(error("Missing old_text parameter"))
-    val edit_all = JSON.bool(params, "edit_all").getOrElse(false)
-    val start_line = JSON.int(params, "start_line")
-    val end_line = JSON.int(params, "end_line")
-    val (new_text, count) = Exn.release(Tool_Edit.read_update_edit(
-      session, mode, node_name, text, start_line, end_line, old_text, edit_all = edit_all))
+  def run(args: Args): JSON.T = {
+    val node_name = Exn.release(session.node_name(args.origin))
+    val (new_text, count) =
+      Exn.release(Tool_Edit.read_update_edit(session, args.mode, node_name, args.text,
+        args.start_line, args.end_line, args.old_text, edit_all = args.edit_all))
     val (status, description) = if (count > 0) {
         session.await_stable_snapshot()
         ("written", s"Edited $count occurrence(s)")

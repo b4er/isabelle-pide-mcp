@@ -16,21 +16,22 @@ object Tool_Create_File {
   }
 }
 
-class Tool_Create_File extends PIDE_MCP_Tool("create_file") {
+class Tool_Create_File extends PIDE_MCP_Typed_Tool[String]("create_file") {
+  import JSON_Schema.Input
+
   def description: String =
     "Create an empty file at the given path. "
       + "Creates missing parent directories if necessary. "
       + "If the file already exists, it does nothing."
 
-  def input_schema: JSON.Object.T =
-    JSON.Object("type" -> "object", "properties" -> JSON.Object(
-      "path" -> JSON.Object("type" -> "string",
-        "description" -> "File path to create (e.g. \"./Algebra/algebra_simp.ML\" or \"/path/to/My_Theory.thy\")")
-    ), "required" -> List("path"))
+  private val path_f = Input.required("path",
+    "File path to create (e.g. \"./Algebra/algebra_simp.ML\" or \"/path/to/My_Theory.thy\")",
+    Input.string)
 
-  def handle(params: JSON.Object.T): Exn.Result[JSON.T] = Exn.capture {
-    val file_path = JSON.string(params, "path").getOrElse(error("Missing path parameter"))
-    val created = Exn.release(Tool_Create_File.create_file(Path.explode(file_path)))
+  val input: Input.T[String] = Input.record(List(path_f))(path_f.get)
+
+  def run(path: String): JSON.T = {
+    val created = Exn.release(Tool_Create_File.create_file(Path.explode(path)))
     if (created) "File created" else "File already exists"
   }
 }

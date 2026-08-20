@@ -7,19 +7,27 @@ package isabelle.pide.mcp
 import isabelle._
 import java.io.{File => JFile}
 
-class Tool_Create_Scratch extends PIDE_MCP_Tool("create_scratch") {
+object Tool_Create_Scratch {
+  case class Args(name_suffix: Option[String], extension: Option[String])
+}
+
+class Tool_Create_Scratch extends PIDE_MCP_Typed_Tool[Tool_Create_Scratch.Args]("create_scratch") {
+  import JSON_Schema.Input
+
   def description: String =
     "Create a temporary file for experimentation that does not interfere with user accessible files. "
       + "Use this whenever you think you need to do iterative developments or when you want to find and explore theorems, syntax, concepts, commands, ML code, etc. Write back final results to files accessible to the user. "
       + "Temporary files are cleaned up when the session stops."
 
-  def input_schema: JSON.Object.T =
-    JSON.Object("type" -> "object", "properties" -> JSON.Object(
-      "name_suffix" -> JSON.Object("type" -> "string",
-        "description" -> "Label to identify the scratch file (auto-generated if omitted)"),
-      "extension" -> JSON.Object("type" -> "string",
-        "description" -> "File extension (typically \".thy\" or \".ML\")")
-    ))
+  private val name_suffix_f = Input.optional("name_suffix",
+    "Label to identify the scratch file (auto-generated if omitted)", Input.string)
+  private val extension_f = Input.optional("extension",
+    "File extension (typically \".thy\" or \".ML\")", Input.string)
+
+  val input: Input.T[Tool_Create_Scratch.Args] =
+    Input.record(List(name_suffix_f, extension_f)) { obj =>
+      Tool_Create_Scratch.Args(name_suffix_f.get(obj), extension_f.get(obj))
+    }
 
   private val scratch_prefix: String = "tmp_pide_mcp_scratch_"
   private val scratch_tmpdir_prefix: String = "tmp_pide_mcp_scratch"
@@ -53,10 +61,8 @@ class Tool_Create_Scratch extends PIDE_MCP_Tool("create_scratch") {
     }
   }
 
-  def handle(params: JSON.Object.T): Exn.Result[JSON.T] = Exn.capture {
-    val name_suffix = JSON.string(params, "name_suffix")
-    val extension = JSON.string(params, "extension")
-    val path = Exn.release(create_scratch(name_suffix, extension))
+  def run(args: Tool_Create_Scratch.Args): JSON.T = {
+    val path = Exn.release(create_scratch(args.name_suffix, args.extension))
     JSON.Object("path" -> path.implode)
   }
 }

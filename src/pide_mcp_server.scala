@@ -134,6 +134,9 @@ class PIDE_MCP_Server(session: PIDE_MCP_Session, log: Logger, verbose: Boolean =
                       "text" -> content_text
                     ))
                   )))
+                case Exn.Exn(e: Invalid_Params) =>
+                  log("Invalid tool params: " + e.message)
+                  respond(out, rpc_error(id, RPC_Error.INVALID_PARAMS, "Invalid arguments: " + e.message))
                 case Exn.Exn(e) =>
                   log("Tool call error: " + Exn.message(e))
                   respond(out, rpc_error(id, RPC_Error.SERVER_ERROR, Exn.message(e)))

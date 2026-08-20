@@ -21,12 +21,6 @@ object PIDE_MCP_Tool_Util {
       }
   }
 
-  def origin_param(session: PIDE_MCP_Session, params: JSON.Object.T): Exn.Result[Document.Node.Name] =
-    Exn.capture {
-      val origin = JSON.string(params, "origin").getOrElse(error("Missing origin parameter"))
-      Exn.release(session.node_name(origin))
-    }
-
   def require_loaded_origin_snapshot(
     session: PIDE_MCP_Session,
     node_name: Document.Node.Name
